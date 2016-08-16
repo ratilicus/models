@@ -1,3 +1,9 @@
+"""
+Models
+by: Adam Dybczak (RaTilicus)
+"""
+
+
 from base import models
 from base.fields import CharField, IDField, IntField
 

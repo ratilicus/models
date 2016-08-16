@@ -1,3 +1,9 @@
+"""
+Models
+by: Adam Dybczak (RaTilicus)
+"""
+
+
 from collections import OrderedDict
 from inspect import isclass
 from fields import (NoDefault, Field)
@@ -14,9 +20,12 @@ class FieldProp(property):
 
         def fset(self, value):
             self._data[fieldname] = value
+            self._dirty_fields.add(fieldname)
 
         def fdel(self):
             del self._data[fieldname]
+            self._dirty_fields.add(fieldname)
+
         super(FieldProp, self).__init__(fget=fget, fset=fset, fdel=fdel, doc='Field %s' % fieldname)
 
 
@@ -24,15 +33,12 @@ class Meta(type):
     def __new__(cls, name, bases, body):
         # print('Meta.__new__(%r, %r, %r, %r)' % (cls, name, bases, body))
         fields = []
-        if '__datastore__' not in body:
-            body['__datastore__'] = datastore = OrderedDict
-
         for k, v in list(body.items()):
             if issubclass(v.__class__, Field):
                 fields.append((k, v))
                 del body[k]
 
-        fields.sort(key=lambda i: i[1]._count)
+        fields.sort(key=lambda i: i[1].index)
         for k, v in fields:
             body[k] = FieldProp(k, v)
 
@@ -47,24 +53,39 @@ class Model(object):
 
     def __init__(self, **kwargs):
         self._data = self.__datastore__() if isclass(self.__datastore__) else self.__datastore__
-        for k, v in kwargs.items():
-            self._data[k] = v
+        self._dirty_fields = set(self._fields)
+        self._clean_data = OrderedDict()
+        self._errors = []
+        for fieldname, value in kwargs.items():
+            self._data[fieldname] = value
+
+    def is_valid(self):
+        errors = self._errors
+        del errors[:]
+        data = self._clean_data
+        for fieldname in self._dirty_fields:
+            if fieldname in self._data:
+                value = self._data[fieldname]
+
+            else:
+                field = self._fields[fieldname]
+                if field.has_default:
+                    value = field.default
+
+                else:
+                    if field.required:
+                        raise NoDefault(fieldname)
+
+                    value = field.blank_value
+
+            data[fieldname] = field.clean(value)
+
+        self._dirty_fields.clear()
+        return data
 
     @property
     def cleaned_data(self):
-        data = OrderedDict()
-        for k, v in self._fields.items():
-            if k in self._data:
-                data[k] = self._data[k]
-            else:
-                default = v.default
-                if default is NoDefault:
-                    if v.required:
-                        raise NoDefault(k)
-
-                    default = None
-                self._data[k] = data[k] = default() if callable(default) else default
-        return data
+        return None if self._dirty_fields else self._clean_data
 
 
 

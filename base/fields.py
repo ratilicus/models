@@ -1,45 +1,85 @@
+"""
+Models
+by: Adam Dybczak (RaTilicus)
+"""
+
+
 from uuid import uuid4
 
 
 class NoDefault(Exception):
     """ No Default """
-    def __init__(self, fieldname):
+    def __init__(self, fieldname=None):
         super(NoDefault, self).__init__('Required field "%s" has no default set' % fieldname)
 
+
+class ValidationError(Exception):
+    """ Field Validation """
 
 ########################################################################################################################
 
 
 class Field(object):
-    _count = 0
+    blank_value = None
+    _instance_count = 0
 
     def __new__(cls, *args, **kwargs):
-        Field._count += 1
-        # print('Field[%d].__new__(%s, %r, %r)' % (cls._count, cls.__name__, args, kwargs))
         obj = super(Field, cls).__new__(cls)
-        obj._count = Field._count
+        obj._index = Field._instance_count
+        Field._instance_count += 1
         return obj
 
-    def __init__(self, label, required=True, default=NoDefault):
-        # print('%s[%d].__init__(label=%r, default=%r)' % (self.__class__.__name__, self._count, label, default))
+    @staticmethod
+    def get_instance_count():
+        return Field._instance_count
+
+    @property
+    def index(self):
+        return self._index
+
+    @property
+    def has_default(self):
+        return self._default is not NoDefault
+
+    @property
+    def default(self):
+        return self._default() if callable(self._default) else self._default
+
+    def __init__(self, label=None, required=True, default=NoDefault):
         self.label = label
         self.required = required
-        self.default = default
+        self._default = default
 
     def __repr__(self):
         return '<%s:%r>' % (self.__class__.__name__, self.label)
 
 
+class IDField(Field):
+    def __init__(self):
+        Field.__init__(self, default=lambda: str(uuid4()))
+
+    def clean(self, data):
+        return str(data)
+
+
 class CharField(Field):
-    def __init__(self, label=None, max_length=NoDefault, **kwargs):
+    blank_value = u''
+
+    def __init__(self, label=None, max_length=None, **kwargs):
         Field.__init__(self, label, **kwargs)
         self.max_length = max_length
 
     def clean(self, data):
         try:
-            return unicode(data)
+            cleaned_data = unicode(data)
+
         except:
             raise
+
+        if self.max_length > 0 and len(cleaned_data) > self.max_length:
+            raise ValidationError('Value is longer than the maximum length')
+
+        return cleaned_data
 
 
 class IntField(Field):
@@ -50,22 +90,21 @@ class IntField(Field):
 
     def clean(self, data):
         try:
-            return int(data)
+            cleaned_data = int(data)
+
+        except ValueError:
+            raise ValidationError('Invalid field value')
+
         except:
             raise
 
+        if self.min is not None and cleaned_data < self.min:
+            raise ValidationError('Value is less than the minimum')
 
-class IDField(Field):
-    def __init__(self):
-        Field.__init__(self, label=None, default=lambda: uuid4())
-        self.min = min
-        self.max = max
+        if self.max is not None and cleaned_data > self.max:
+            raise ValidationError('Value is greater than the maximum')
 
-    def clean(self, data):
-        try:
-            return str(data)
-        except:
-            raise
+        return cleaned_data
 
 
 class FloatField(Field):
@@ -76,6 +115,18 @@ class FloatField(Field):
 
     def clean(self, data):
         try:
-            return float(data)
+            cleaned_data = float(data)
+
+        except ValueError:
+            raise ValidationError('Invalid field value')
+
         except:
             raise
+
+        if self.min is not None and cleaned_data < self.min:
+            raise ValidationError('Value is less than the minimum')
+
+        if self.max is not None and cleaned_data > self.max:
+            raise ValidationError('Value is greater than the maximum')
+
+        return cleaned_data
